@@ -171,6 +171,10 @@ const SEED_LIST = [
 
 const TRIP_KEY = "trip:data:v1";
 const LIST_KEY = "packlist:items:v2";
+const EXP_KEY = "expenses:v1";
+
+const EXPENSE_CATEGORIES = ["餐食", "交通", "購物", "住宿", "景點門票", "其他"];
+const CURRENCIES = ["¥", "NT$", "$", "€", "₩", "฿"];
 
 function emptyItem() {
   return {
@@ -324,10 +328,10 @@ const STYLES = `
 .tj-sl-head h2{font-family:'Fraunces',serif;font-weight:600;font-size:21px;margin:0;}
 .tj-sl-prog{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums;}
 .tj-sl-right{display:flex;align-items:center;gap:12px;}
-.tj-icon-add{flex:0 0 auto;width:32px;height:32px;border-radius:9px;border:1px solid var(--accent);
+.tj-icon-add{flex:0 0 auto;width:26px;height:26px;border-radius:50%;border:1px solid var(--accent);
   background:var(--accent);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:inherit;}
-.tj-icon-add svg{width:17px;height:17px;stroke:currentColor;}
-.tj-icon-add:active{transform:scale(.94);}
+.tj-icon-add svg{width:14px;height:14px;stroke:currentColor;}
+.tj-icon-add:active{transform:scale(.92);}
 .tj-filters{display:flex;gap:7px;overflow-x:auto;padding-bottom:8px;}
 .tj-filters::-webkit-scrollbar{display:none;}
 .tj-filter{flex:0 0 auto;border:0;border-bottom:2px solid transparent;background:transparent;border-radius:0;
@@ -346,6 +350,35 @@ const STYLES = `
   padding:2px 6px;border-radius:6px;line-height:1;font-family:inherit;}
 .tj-del:hover{color:var(--danger);background:var(--inset);}
 .tj-empty{text-align:center;color:var(--faint);font-size:13px;padding:40px 0;line-height:1.6;}
+
+/* Expenses */
+.tj-exp-total{border:0;border-bottom:1px solid var(--line);padding:2px 0 16px;margin-bottom:6px;}
+.tj-exp-total .tj-exp-amt{font-family:'Fraunces',serif;font-weight:600;font-size:30px;font-variant-numeric:tabular-nums;line-height:1.1;}
+.tj-exp-total .tj-exp-sub{font-size:12px;color:var(--faint);margin-top:4px;}
+.tj-scan{display:flex;gap:9px;margin:16px 0 8px;}
+.tj-scan-btn{flex:1;border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent-ink);
+  border-radius:12px;padding:13px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;
+  display:flex;align-items:center;justify-content:center;gap:7px;}
+.tj-scan-btn:active{transform:scale(.99);}
+.tj-scan-btn svg{width:17px;height:17px;stroke:currentColor;fill:none;}
+.tj-exp-cat{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin:18px 0 4px;}
+.tj-exp-row{display:flex;align-items:flex-start;gap:11px;padding:13px 2px;border-bottom:1px solid var(--line);cursor:pointer;}
+.tj-exp-chip{flex:0 0 auto;font-size:10px;font-weight:600;letter-spacing:.04em;padding:3px 8px;border-radius:20px;
+  background:var(--accent-soft);color:var(--accent-ink);margin-top:2px;}
+.tj-exp-main{flex:1;min-width:0;}
+.tj-exp-merchant{font-size:14.5px;font-weight:600;line-height:1.3;}
+.tj-exp-date{font-size:12px;color:var(--faint);margin-top:2px;font-variant-numeric:tabular-nums;}
+.tj-exp-val{flex:0 0 auto;font-size:14.5px;font-weight:600;font-variant-numeric:tabular-nums;text-align:right;}
+.tj-exp-detail{padding:2px 2px 13px 44px;border-bottom:1px solid var(--line);}
+.tj-exp-item{display:flex;justify-content:space-between;font-size:13px;color:var(--muted);padding:3px 0;}
+.tj-exp-item span:last-child{font-variant-numeric:tabular-nums;}
+.tj-exp-note{font-size:12.5px;color:var(--faint);margin-top:6px;line-height:1.5;}
+.tj-exp-del{border:0;background:transparent;color:var(--danger);font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit;padding:6px 0 0;}
+.tj-spinner{width:30px;height:30px;border:3px solid var(--line);border-top-color:var(--accent);border-radius:50%;
+  animation:tj-spin .8s linear infinite;margin:0 auto 14px;}
+.tj-scan-state{text-align:center;padding:30px 20px;}
+.tj-scan-state p{font-size:14px;color:var(--muted);margin:0;}
+@keyframes tj-spin{to{transform:rotate(360deg);}}
 
 /* Modal / sheet editor */
 .tj-overlay{position:fixed;inset:0;background:rgba(20,22,18,.42);display:flex;align-items:flex-end;
@@ -469,7 +502,6 @@ function ActivityCard({ item, state, expanded, onToggle, editMode, onEdit }) {
         <span className="tj-c-main">
           <span className="tj-c-title">
             {item.title || "（未命名行程）"}
-            {state === "current" && <span className="tj-live-tag">進行中</span>}
           </span>
           {item.brief && <span className="tj-c-brief">{item.brief}</span>}
         </span>
@@ -790,6 +822,303 @@ function ShoppingList() {
   );
 }
 
+/* ----------------------------- Expenses ----------------------------- */
+const RECEIPT_PROMPT =
+  "你是收據辨識助理。請辨識這張收據圖片，只回傳一個 JSON 物件，不要任何其他文字或 markdown。格式：" +
+  '{"merchant":"店名","date":"YYYY-MM-DD 或空字串","currency":"幣別符號如 ¥ 或 NT$","items":[{"name":"品項","amount":數字}],"total":數字,"category":"從 餐食/交通/購物/住宿/景點門票/其他 擇一"}。' +
+  "金額一律為數字、不含符號或逗號。看不清楚的欄位用空字串或 0。";
+
+function blankExpense() {
+  return {
+    id: newId(),
+    merchant: "",
+    total: "",
+    currency: "¥",
+    category: "餐食",
+    date: todayISO(),
+    items: [],
+    note: "",
+  };
+}
+
+function fmtMoney(n) {
+  const num = Number(n) || 0;
+  return num.toLocaleString("en-US", { maximumFractionDigits: 2 });
+}
+
+async function callReceiptAI(base64, mediaType) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 1000,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
+            { type: "text", text: RECEIPT_PROMPT },
+          ],
+        },
+      ],
+    }),
+  });
+  if (!res.ok) throw new Error("api " + res.status);
+  const data = await res.json();
+  const txt = (data.content || []).map((c) => (c.type === "text" ? c.text : "")).join("");
+  const clean = txt.replace(/```json|```/g, "").trim();
+  return JSON.parse(clean);
+}
+
+function ExpenseEditor({ initial, isNew, onSave, onDelete, onClose }) {
+  const [e, setE] = useState(() => JSON.parse(JSON.stringify(initial)));
+  const [confirmDel, setConfirmDel] = useState(false);
+  const set = (k, v) => setE((p) => ({ ...p, [k]: v }));
+
+  const save = () => {
+    const clean = { ...e, total: Number(e.total) || 0 };
+    if (!clean.merchant.trim() && clean.total === 0) return;
+    onSave(clean);
+  };
+
+  return (
+    <div className="tj-overlay" onClick={onClose}>
+      <div className="tj-sheet" onClick={(ev) => ev.stopPropagation()}>
+        <div className="tj-sheet-head">
+          <h3 className="tj-serif">{isNew ? "新增花費" : "編輯花費"}</h3>
+          <button className="tj-x" onClick={onClose} aria-label="關閉">×</button>
+        </div>
+        <div className="tj-sheet-body">
+          <div className="tj-field">
+            <label className="tj-label">商家 / 項目</label>
+            <input className="tj-fi" autoFocus placeholder="例：大黒家天麩羅" value={e.merchant} onChange={(ev) => set("merchant", ev.target.value)} />
+          </div>
+          <div className="tj-two">
+            <div className="tj-field" style={{ flex: "0 0 auto", width: 92 }}>
+              <label className="tj-label">幣別</label>
+              <select className="tj-fi" value={e.currency} onChange={(ev) => set("currency", ev.target.value)}>
+                {CURRENCIES.map((c) => (<option key={c} value={c}>{c}</option>))}
+              </select>
+            </div>
+            <div className="tj-field" style={{ flex: 1 }}>
+              <label className="tj-label">金額</label>
+              <input type="number" inputMode="decimal" className="tj-fi" placeholder="0" value={e.total} onChange={(ev) => set("total", ev.target.value)} />
+            </div>
+          </div>
+          <div className="tj-field">
+            <label className="tj-label">分類</label>
+            <select className="tj-fi" value={e.category} onChange={(ev) => set("category", ev.target.value)}>
+              {EXPENSE_CATEGORIES.map((c) => (<option key={c} value={c}>{c}</option>))}
+            </select>
+          </div>
+          <div className="tj-field">
+            <label className="tj-label">日期</label>
+            <input type="date" className="tj-fi" value={e.date} onChange={(ev) => set("date", ev.target.value)} />
+          </div>
+          {e.items && e.items.length > 0 && (
+            <div className="tj-field">
+              <label className="tj-label">辨識到的品項</label>
+              {e.items.map((it, i) => (
+                <div className="tj-exp-item" key={i}>
+                  <span>{it.name}</span><span>{fmtMoney(it.amount)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="tj-field" style={{ marginBottom: 0 }}>
+            <label className="tj-label">備註</label>
+            <textarea className="tj-fi" value={e.note} onChange={(ev) => set("note", ev.target.value)} />
+          </div>
+        </div>
+        <div className="tj-sheet-foot">
+          {!isNew && (
+            <button className="tj-btn-danger" onClick={() => (confirmDel ? onDelete() : setConfirmDel(true))}>
+              {confirmDel ? "確定刪除" : "刪除"}
+            </button>
+          )}
+          <button className="tj-btn-primary" onClick={save}>儲存</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ExpensesTab() {
+  const [expenses, setExpenses] = useState(null);
+  const [editor, setEditor] = useState(null); // { initial, isNew }
+  const [expandedId, setExpandedId] = useState(null);
+  const [scanState, setScanState] = useState(null); // null | 'scanning' | 'error'
+  const fileRef = useRef(null);
+  const loaded = useRef(false);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await window.storage.get(EXP_KEY);
+        if (alive && res && res.value) { setExpenses(JSON.parse(res.value)); loaded.current = true; return; }
+      } catch (err) {}
+      if (alive) { setExpenses([]); loaded.current = true; }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!loaded.current || expenses === null) return;
+    (async () => { try { await window.storage.set(EXP_KEY, JSON.stringify(expenses)); } catch (err) {} })();
+  }, [expenses]);
+
+  if (expenses === null) return <p className="tj-empty">載入花費中…</p>;
+
+  const saveExpense = (exp) => {
+    setExpenses((prev) => {
+      const i = prev.findIndex((x) => x.id === exp.id);
+      if (i >= 0) { const c = [...prev]; c[i] = exp; return c; }
+      return [exp, ...prev];
+    });
+    setEditor(null);
+  };
+  const removeExpense = (id) => { setExpenses(expenses.filter((x) => x.id !== id)); setEditor(null); };
+
+  const onPickFile = (ev) => {
+    const file = ev.target.files && ev.target.files[0];
+    ev.target.value = "";
+    if (!file) return;
+    setScanState("scanning");
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const base64 = String(reader.result).split(",")[1];
+        const mediaType = file.type || "image/jpeg";
+        const r = await callReceiptAI(base64, mediaType);
+        const draft = {
+          ...blankExpense(),
+          merchant: r.merchant || "",
+          total: r.total || "",
+          currency: r.currency || "¥",
+          category: EXPENSE_CATEGORIES.includes(r.category) ? r.category : "餐食",
+          date: r.date || todayISO(),
+          items: Array.isArray(r.items) ? r.items.filter((x) => x && x.name) : [],
+        };
+        setScanState(null);
+        setEditor({ initial: draft, isNew: true });
+      } catch (err) {
+        setScanState("error");
+      }
+    };
+    reader.onerror = () => setScanState("error");
+    reader.readAsDataURL(file);
+  };
+
+  // totals by currency
+  const totals = {};
+  expenses.forEach((e) => { totals[e.currency] = (totals[e.currency] || 0) + (Number(e.total) || 0); });
+  const totalStr = Object.keys(totals).length
+    ? Object.entries(totals).map(([c, v]) => `${c} ${fmtMoney(v)}`).join("　·　")
+    : "¥ 0";
+
+  // group by category
+  const grouped = EXPENSE_CATEGORIES
+    .map((c) => ({ cat: c, list: expenses.filter((e) => e.category === c) }))
+    .filter((g) => g.list.length > 0);
+
+  return (
+    <div>
+      <div className="tj-sl-head">
+        <h2 className="tj-serif">花費</h2>
+        <button className="tj-icon-add" onClick={() => setEditor({ initial: blankExpense(), isNew: true })} aria-label="新增花費" title="新增花費">
+          <svg viewBox="0 0 24 24" fill="none" strokeWidth="2.2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+        </button>
+      </div>
+
+      <div className="tj-exp-total">
+        <div className="tj-exp-amt">{totalStr}</div>
+        <div className="tj-exp-sub">共 {expenses.length} 筆 · 本次旅程花費</div>
+      </div>
+
+      <div className="tj-scan">
+        <button className="tj-scan-btn" onClick={() => fileRef.current && fileRef.current.click()}>
+          <svg viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" /><circle cx="12" cy="13" r="4" /></svg>
+          拍照辨識收據
+        </button>
+        <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={onPickFile} />
+      </div>
+
+      {expenses.length === 0 ? (
+        <p className="tj-empty">還沒有花費紀錄。<br />點右上「＋」手動新增，或用「拍照辨識收據」。</p>
+      ) : (
+        grouped.map((g) => (
+          <div key={g.cat}>
+            <div className="tj-exp-cat">{g.cat}</div>
+            {g.list.map((e) => (
+              <div key={e.id}>
+                <div className="tj-exp-row" onClick={() => setExpandedId(expandedId === e.id ? null : e.id)}>
+                  <span className="tj-exp-chip">{e.category}</span>
+                  <div className="tj-exp-main">
+                    <div className="tj-exp-merchant">{e.merchant || "（未填商家）"}</div>
+                    <div className="tj-exp-date">{e.date}</div>
+                  </div>
+                  <div className="tj-exp-val">{e.currency} {fmtMoney(e.total)}</div>
+                </div>
+                {expandedId === e.id && (
+                  <div className="tj-exp-detail">
+                    {e.items && e.items.length > 0 && e.items.map((it, i) => (
+                      <div className="tj-exp-item" key={i}><span>{it.name}</span><span>{fmtMoney(it.amount)}</span></div>
+                    ))}
+                    {e.note && <div className="tj-exp-note">{e.note}</div>}
+                    <button className="tj-exp-del" onClick={() => setEditor({ initial: e, isNew: false })}>編輯</button>
+                    <button className="tj-exp-del" style={{ marginLeft: 16 }} onClick={() => removeExpense(e.id)}>刪除</button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        ))
+      )}
+
+      {scanState === "scanning" && (
+        <div className="tj-overlay">
+          <div className="tj-sheet" style={{ maxHeight: "none" }}>
+            <div className="tj-scan-state">
+              <div className="tj-spinner" />
+              <p>辨識收據中…</p>
+            </div>
+          </div>
+        </div>
+      )}
+      {scanState === "error" && (
+        <div className="tj-overlay" onClick={() => setScanState(null)}>
+          <div className="tj-sheet" onClick={(ev) => ev.stopPropagation()}>
+            <div className="tj-sheet-head">
+              <h3 className="tj-serif">無法自動辨識</h3>
+              <button className="tj-x" onClick={() => setScanState(null)} aria-label="關閉">×</button>
+            </div>
+            <div className="tj-sheet-body">
+              <p style={{ fontSize: 14, color: "var(--muted)", lineHeight: 1.6, margin: 0 }}>
+                這個環境無法使用 AI 收據辨識（在已部署的網站上需要自備金鑰）。請改用手動輸入。
+              </p>
+            </div>
+            <div className="tj-sheet-foot">
+              <button className="tj-btn-primary" onClick={() => { setScanState(null); setEditor({ initial: blankExpense(), isNew: true }); }}>改為手動輸入</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editor && (
+        <ExpenseEditor
+          initial={editor.initial}
+          isNew={editor.isNew}
+          onSave={saveExpense}
+          onDelete={() => removeExpense(editor.initial.id)}
+          onClose={() => setEditor(null)}
+        />
+      )}
+    </div>
+  );
+}
+
 /* ----------------------------- App ----------------------------- */
 function App() {
   const [now, setNow] = useState(new Date());
@@ -938,6 +1267,7 @@ function App() {
         <div className="tj-tabs">
           <button className="tj-tab" data-active={tab === "itinerary"} onClick={() => setTab("itinerary")}>行程</button>
           <button className="tj-tab" data-active={tab === "list"} onClick={() => setTab("list")}>購物</button>
+          <button className="tj-tab" data-active={tab === "expenses"} onClick={() => setTab("expenses")}>花費</button>
         </div>
 
         {tab === "itinerary" ? (
@@ -1000,8 +1330,10 @@ function App() {
               </div>
             )}
           </>
-        ) : (
+        ) : tab === "list" ? (
           <ShoppingList />
+        ) : (
+          <ExpensesTab />
         )}
       </div>
 
